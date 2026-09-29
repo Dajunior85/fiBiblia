@@ -1,0 +1,1213 @@
+---
+import { supabase } from "../../lib/supabase";
+
+interface Book {
+  id: string;
+  name: string;
+  slug: string;
+  book_order: number;
+}
+
+interface Chapter {
+  id: string;
+  book_id: string;
+  chapter_number: number;
+}
+
+interface Verse {
+  verse_number: number;
+  text: string;
+}
+
+export async function getStaticPaths() {
+  const { data: books, error: booksError } = await supabase
+    .from("books")
+    .select("id, slug");
+
+  if (booksError || !books) {
+    throw new Error("Não foi possível carregar os livros.");
+  }
+
+  const { data: chapters, error: chaptersError } = await supabase
+    .from("chapters")
+    .select("book_id, chapter_number")
+    .order("chapter_number");
+
+  if (chaptersError || !chapters) {
+    throw new Error("Não foi possível carregar os capítulos.");
+  }
+
+  const paths = [];
+
+  for (const book of books) {
+    const bookChapters = chapters.filter(
+      (chapter) => chapter.book_id === book.id
+    );
+
+    for (const chapter of bookChapters) {
+      paths.push({
+        params: {
+          book: book.slug,
+          chapter: String(chapter.chapter_number),
+        },
+      });
+    }
+  }
+
+  return paths;
+}
+
+const { book: bookSlug, chapter } = Astro.params;
+const chapterNumber = Number(chapter);
+
+let book: Book | null = null;
+let verses: Verse[] = [];
+let errorMessage = "";
+let previousUrl: string | null = null;
+let nextUrl: string | null = null;
+
+const { data: bookData, error: bookError } = await supabase
+  .from("books")
+  .select("id, name, slug, book_order")
+  .eq("slug", bookSlug)
+  .single();
+
+if (bookError || !bookData) {
+  errorMessage = "Livro não encontrado.";
+} else {
+  book = bookData;
+
+  const { data: chapterData, error: chapterError } = await supabase
+    .from("chapters")
+    .select("id, book_id, chapter_number")
+    .eq("book_id", book.id)
+    .eq("chapter_number", chapterNumber)
+    .single();
+
+  if (chapterError || !chapterData) {
+    errorMessage = "Capítulo não encontrado.";
+  } else {
+    const { data: version, error: versionError } = await supabase
+      .from("bible_versions")
+      .select("id")
+      .eq("abbreviation", "BL")
+      .single();
+
+    if (versionError || !version) {
+      errorMessage = "Versão bíblica não encontrada.";
+    } else {
+      const { data, error: verseError } = await supabase
+        .from("verses")
+        .select("verse_number, text")
+        .eq("chapter_id", chapterData.id)
+        .eq("version_id", version.id)
+        .order("verse_number");
+
+      if (verseError) {
+        errorMessage = "Erro ao carregar os versículos.";
+      } else {
+        verses = data ?? [];
+      }
+    }
+
+    // Capítulo anterior
+    if (chapterNumber > 1) {
+      previousUrl = `/${book.slug}/${chapterNumber - 1}`;
+    } else if (book.book_order > 1) {
+      const { data: previousBook } = await supabase
+        .from("books")
+        .select("id, slug")
+        .eq("book_order", book.book_order - 1)
+        .single();
+
+      if (previousBook) {
+        const { data: lastChapter } = await supabase
+          .from("chapters")
+          .select("chapter_number")
+          .eq("book_id", previousBook.id)
+          .order("chapter_number", { ascending: false })
+          .limit(1)
+          .single();
+
+        if (lastChapter) {
+          previousUrl = `/${previousBook.slug}/${lastChapter.chapter_number}`;
+        }
+      }
+    }
+
+    // Próximo capítulo
+    const { data: currentBookLastChapter } = await supabase
+      .from("chapters")
+      .select("chapter_number")
+      .eq("book_id", book.id)
+      .order("chapter_number", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (
+      currentBookLastChapter &&
+      chapterNumber < currentBookLastChapter.chapter_number
+    ) {
+      nextUrl = `/${book.slug}/${chapterNumber + 1}`;
+    } else {
+      const { data: nextBook } = await supabase
+        .from("books")
+        .select("slug, id")
+        .eq("book_order", book.book_order + 1)
+        .single();
+
+      if (nextBook) {
+        nextUrl = `/${nextBook.slug}/1`;
+      }
+    }
+  }
+}
+
+/* ================================
+   MENU DE NAVEGAÇÃO
+================================ */
+
+const { data: navigationBooks } = await supabase
+  .from("books")
+  .select("id, name, slug, book_order")
+  .order("book_order");
+
+const { data: navigationChapters } = await supabase
+  .from("chapters")
+  .select("book_id, chapter_number")
+  .order("chapter_number");
+
+const booksForMenu = (navigationBooks ?? []).map((menuBook) => ({
+  ...menuBook,
+  chapters: (navigationChapters ?? [])
+    .filter((menuChapter) => menuChapter.book_id === menuBook.id)
+    .sort((a, b) => a.chapter_number - b.chapter_number),
+}));
+---
+
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1"
+    />
+
+    <title>
+      {book ? `${book.name} ${chapter}` : "fiBíblia"}
+    </title>
+
+    <style>
+      :global(html) {
+        font-size: 16px;
+      }
+
+      :global(body) {
+        margin: 0;
+        background: #faf9f6;
+        color: #292621;
+      }
+
+      /* ================================
+         CABEÇALHO FIXO
+      ================================= */
+
+      .reader-header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+
+        height: 64px;
+
+        display: grid;
+        grid-template-columns: 52px 1fr 52px;
+        align-items: center;
+
+        background: rgba(250, 249, 246, 0.94);
+        backdrop-filter: blur(14px);
+
+        border-bottom: 1px solid #e6e1d9;
+      }
+
+      .header-title {
+        text-align: center;
+
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 1.15rem;
+        font-weight: 600;
+
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .menu-button {
+        width: 44px;
+        height: 44px;
+
+        margin-left: 6px;
+
+        border: none;
+        border-radius: 13px;
+
+        background: transparent;
+
+        font-size: 1.45rem;
+        color: #403b34;
+
+        cursor: pointer;
+      }
+
+      .menu-button:hover {
+        background: #eeeae3;
+      }
+
+      /* ================================
+         ÁREA PRINCIPAL
+      ================================= */
+
+      main {
+        max-width: 800px;
+        margin: 0 auto;
+
+        padding: 6.5rem 1.5rem 2.5rem;
+
+        font-family: Georgia, "Times New Roman", serif;
+      }
+
+      h1 {
+        margin: 0 0 1.5rem;
+
+        font-size: 2rem;
+        line-height: 1.2;
+
+        text-align: center;
+        font-weight: 600;
+      }
+
+      /* ================================
+         MENU LATERAL
+      ================================= */
+
+      .menu-overlay {
+        position: fixed;
+        inset: 0;
+
+        z-index: 2000;
+
+        background: rgba(35, 31, 27, 0.35);
+
+        opacity: 0;
+        visibility: hidden;
+
+        transition:
+          opacity 0.25s ease,
+          visibility 0.25s ease;
+      }
+
+      .menu-overlay.open {
+        opacity: 1;
+        visibility: visible;
+      }
+
+      .reader-menu {
+        position: fixed;
+
+        top: 0;
+        left: 0;
+        bottom: 0;
+
+        z-index: 2100;
+
+        width: min(390px, 88vw);
+
+        background: #fffdf9;
+
+        box-shadow: 8px 0 30px rgba(0, 0, 0, 0.12);
+
+        transform: translateX(-100%);
+
+        transition: transform 0.28s ease;
+
+        display: flex;
+        flex-direction: column;
+      }
+
+      .reader-menu.open {
+        transform: translateX(0);
+      }
+
+      .menu-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        padding: 1rem 1rem 0.8rem;
+
+        border-bottom: 1px solid #eee8df;
+      }
+
+      .menu-brand {
+        font-family: Georgia, "Times New Roman", serif;
+
+        font-size: 1.3rem;
+        font-weight: 700;
+      }
+
+      .menu-close {
+        width: 42px;
+        height: 42px;
+
+        border: none;
+        border-radius: 12px;
+
+        background: #f2eee8;
+
+        font-size: 1.4rem;
+
+        cursor: pointer;
+      }
+
+      .menu-content {
+        overflow-y: auto;
+
+        padding: 1rem;
+      }
+
+      /* ================================
+         TAMANHO DA LETRA
+      ================================= */
+
+      .menu-section-title {
+        margin: 0 0 0.7rem;
+
+        font-family: system-ui, sans-serif;
+
+        font-size: 0.75rem;
+        font-weight: 700;
+
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+
+        color: #918a80;
+      }
+
+      .font-controls-menu {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+
+        gap: 0.5rem;
+
+        margin-bottom: 1.5rem;
+      }
+
+      .font-button {
+        min-height: 48px;
+
+        border: 1px solid #ddd6cc;
+        border-radius: 14px;
+
+        background: #fff;
+
+        color: #403b34;
+
+        font-family: system-ui, sans-serif;
+
+        font-weight: 600;
+        font-size: 1rem;
+
+        cursor: pointer;
+      }
+
+      .font-button:hover {
+        background: #f3efe9;
+      }
+
+      .font-button:active {
+        transform: scale(0.96);
+      }
+
+      .font-large {
+        font-size: 1.2rem;
+      }
+
+      /* ================================
+         LIVROS
+      ================================= */
+
+      .books-list {
+        display: flex;
+        flex-direction: column;
+
+        gap: 0.35rem;
+
+        margin-bottom: 1.5rem;
+      }
+
+      .book-item {
+        border-radius: 14px;
+
+        overflow: hidden;
+      }
+
+      .book-item[open] {
+        background: #f7f3ed;
+      }
+
+      .book-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+
+        min-height: 48px;
+
+        padding: 0.7rem 0.85rem;
+
+        cursor: pointer;
+
+        list-style: none;
+
+        font-family: system-ui, sans-serif;
+        font-size: 0.98rem;
+        font-weight: 600;
+      }
+
+      .book-summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .book-summary::after {
+        content: "›";
+
+        font-size: 1.4rem;
+
+        color: #aaa198;
+
+        transition: transform 0.2s ease;
+      }
+
+      .book-item[open] .book-summary::after {
+        transform: rotate(90deg);
+      }
+
+      .book-item.current-book .book-summary {
+        color: #6f5436;
+        background: #eee7dc;
+      }
+
+      /* ================================
+         CAPÍTULOS
+      ================================= */
+
+      .chapter-grid {
+        display: grid;
+
+        grid-template-columns: repeat(5, 1fr);
+
+        gap: 0.45rem;
+
+        padding: 0 0.75rem 0.85rem;
+      }
+
+      .chapter-link {
+        display: flex;
+
+        align-items: center;
+        justify-content: center;
+
+        min-height: 42px;
+
+        border-radius: 11px;
+
+        background: #fff;
+
+        border: 1px solid #e2dcd3;
+
+        color: #4b443b;
+
+        text-decoration: none;
+
+        font-family: system-ui, sans-serif;
+
+        font-size: 0.9rem;
+        font-weight: 600;
+
+        transition:
+          background 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .chapter-link:hover {
+        background: #eee8df;
+      }
+
+      .chapter-link:active {
+        transform: scale(0.94);
+      }
+
+      .chapter-link.current {
+        background: #6f5436;
+        border-color: #6f5436;
+        color: white;
+      }
+
+      /* ================================
+         NAVEGAÇÃO DO CAPÍTULO
+      ================================= */
+
+      nav {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+
+        gap: 1rem;
+
+        margin: 2rem 0;
+      }
+
+      nav a {
+        display: inline-flex;
+
+        align-items: center;
+        justify-content: center;
+
+        min-height: 48px;
+
+        padding: 0.7rem 1.2rem;
+
+        border-radius: 14px;
+
+        background: #f1eee8;
+
+        color: #403b34;
+
+        text-decoration: none;
+
+        font-family: system-ui, sans-serif;
+
+        font-size: 0.95rem;
+        font-weight: 600;
+
+        transition:
+          background 0.2s ease,
+          transform 0.15s ease,
+          box-shadow 0.2s ease;
+      }
+
+      nav a:hover {
+        background: #e7e1d8;
+
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      }
+
+      nav a:active {
+        transform: scale(0.97);
+      }
+
+      nav span {
+        display: inline-flex;
+
+        align-items: center;
+        justify-content: center;
+
+        min-height: 48px;
+
+        padding: 0.7rem 1.2rem;
+
+        color: #aaa39a;
+
+        font-family: system-ui, sans-serif;
+
+        font-size: 0.95rem;
+      }
+
+      /* ================================
+         TEXTO BÍBLICO
+      ================================= */
+
+      ol {
+        padding-left: 2.8rem;
+        margin: 0;
+      }
+
+      li {
+        margin-bottom: 1rem;
+
+        padding-left: 0.3rem;
+
+        line-height: 1.8;
+      }
+
+      li::marker {
+        color: #8b7355;
+
+        font-family: system-ui, sans-serif;
+
+        font-size: 0.75em;
+
+        font-weight: 600;
+      }
+
+      .reader-text {
+        font-size: 1.3rem;
+      }
+
+      /* ================================
+         MOBILE
+      ================================= */
+
+      @media (max-width: 600px) {
+        .reader-header {
+          height: 58px;
+
+          grid-template-columns: 52px 1fr 52px;
+        }
+
+        .header-title {
+          font-size: 1.05rem;
+        }
+
+        main {
+          max-width: none;
+
+          padding: 5.5rem 1rem 2rem;
+        }
+
+        h1 {
+          font-size: 1.65rem;
+
+          margin-bottom: 1.25rem;
+        }
+
+        .reader-text {
+          font-size: 1.3rem;
+        }
+
+        ol {
+          padding-left: 2.4rem;
+        }
+
+        li {
+          margin-bottom: 1.15rem;
+
+          line-height: 1.8;
+
+          padding-left: 0.2rem;
+        }
+
+        nav {
+          margin: 2rem 0;
+
+          gap: 0.6rem;
+        }
+
+        nav a,
+        nav span {
+          flex: 1;
+
+          min-height: 52px;
+
+          padding: 0.7rem 0.5rem;
+
+          border-radius: 15px;
+
+          font-size: 0.9rem;
+
+          text-align: center;
+        }
+
+        .chapter-grid {
+          grid-template-columns: repeat(4, 1fr);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+
+    <!-- CABEÇALHO FIXO -->
+
+    <header class="reader-header">
+
+      <button
+        class="menu-button"
+        id="menu-open"
+        type="button"
+        aria-label="Abrir menu"
+        aria-expanded="false"
+      >
+        ☰
+      </button>
+
+      <div class="header-title">
+        {book?.name} {chapter}
+      </div>
+
+      <div></div>
+
+    </header>
+
+
+    <!-- MENU -->
+
+    <div
+      class="menu-overlay"
+      id="menu-overlay"
+    ></div>
+
+    <aside
+      class="reader-menu"
+      id="reader-menu"
+      aria-label="Menu de leitura"
+    >
+
+      <div class="menu-header">
+
+        <div class="menu-brand">
+          fiBíblia
+        </div>
+
+        <button
+          class="menu-close"
+          id="menu-close"
+          type="button"
+          aria-label="Fechar menu"
+        >
+          ×
+        </button>
+
+      </div>
+
+
+      <div class="menu-content">
+
+        <!-- TAMANHO -->
+
+        <p class="menu-section-title">
+          Tamanho da letra
+        </p>
+
+        <div class="font-controls-menu">
+
+          <button
+            class="font-button"
+            id="font-decrease"
+            type="button"
+            aria-label="Diminuir letra"
+          >
+            A−
+          </button>
+
+          <button
+            class="font-button"
+            id="font-reset"
+            type="button"
+            aria-label="Tamanho padrão"
+          >
+            A
+          </button>
+
+          <button
+            class="font-button font-large"
+            id="font-increase"
+            type="button"
+            aria-label="Aumentar letra"
+          >
+            A+
+          </button>
+
+        </div>
+
+
+        <!-- LIVROS -->
+
+        <p class="menu-section-title">
+          Livros
+        </p>
+
+        <div class="books-list">
+
+          {
+            booksForMenu.map((menuBook) => (
+              <details
+                class:list={[
+                  "book-item",
+                  {
+                    "current-book":
+                      menuBook.slug === bookSlug
+                  }
+                ]}
+                open={menuBook.slug === bookSlug}
+              >
+
+                <summary class="book-summary">
+                  {menuBook.name}
+                </summary>
+
+                <div class="chapter-grid">
+
+                  {
+                    menuBook.chapters.map(
+                      (menuChapter) => (
+                        <a
+                          class:list={[
+                            "chapter-link",
+                            {
+                              current:
+                                menuBook.slug ===
+                                  bookSlug &&
+                                menuChapter.chapter_number ===
+                                  chapterNumber
+                            }
+                          ]}
+                          href={`/${menuBook.slug}/${menuChapter.chapter_number}`}
+                        >
+                          {menuChapter.chapter_number}
+                        </a>
+                      )
+                    )
+                  }
+
+                </div>
+
+              </details>
+            ))
+          }
+
+        </div>
+
+      </div>
+
+    </aside>
+
+
+    <!-- CONTEÚDO -->
+
+    <main>
+
+      {
+        errorMessage ? (
+          <p>{errorMessage}</p>
+        ) : (
+          <>
+
+            <h1>
+              {book?.name} {chapter}
+            </h1>
+
+
+            <!-- NAVEGAÇÃO -->
+
+            <nav>
+
+              {
+                previousUrl ? (
+                  <a href={previousUrl}>
+                    ← Anterior
+                  </a>
+                ) : (
+                  <span>
+                    ← Anterior
+                  </span>
+                )
+              }
+
+              {
+                nextUrl ? (
+                  <a href={nextUrl}>
+                    Próximo →
+                  </a>
+                ) : (
+                  <span>
+                    Próximo →
+                  </span>
+                )
+              }
+
+            </nav>
+
+
+            <!-- TEXTO -->
+
+            <ol>
+
+              {
+                verses.map((verse) => (
+                  <li>
+                    <span class="reader-text">
+                      {verse.text}
+                    </span>
+                  </li>
+                ))
+              }
+
+            </ol>
+
+
+            <!-- NAVEGAÇÃO FINAL -->
+
+            <nav>
+
+              {
+                previousUrl ? (
+                  <a href={previousUrl}>
+                    ← Anterior
+                  </a>
+                ) : (
+                  <span>
+                    ← Anterior
+                  </span>
+                )
+              }
+
+              {
+                nextUrl ? (
+                  <a href={nextUrl}>
+                    Próximo →
+                  </a>
+                ) : (
+                  <span>
+                    Próximo →
+                  </span>
+                )
+              }
+
+            </nav>
+
+          </>
+        )
+      }
+
+
+      <script>
+        /* ================================
+           MENU
+        ================================= */
+
+        const menu =
+          document.getElementById("reader-menu");
+
+        const overlay =
+          document.getElementById("menu-overlay");
+
+        const openButton =
+          document.getElementById("menu-open");
+
+        const closeButton =
+          document.getElementById("menu-close");
+
+
+        function openMenu() {
+          menu?.classList.add("open");
+          overlay?.classList.add("open");
+
+          openButton?.setAttribute(
+            "aria-expanded",
+            "true"
+          );
+
+          document.body.style.overflow = "hidden";
+        }
+
+
+        function closeMenu() {
+          menu?.classList.remove("open");
+          overlay?.classList.remove("open");
+
+          openButton?.setAttribute(
+            "aria-expanded",
+            "false"
+          );
+
+          document.body.style.overflow = "";
+        }
+
+
+        openButton?.addEventListener(
+          "click",
+          openMenu
+        );
+
+        closeButton?.addEventListener(
+          "click",
+          closeMenu
+        );
+
+        overlay?.addEventListener(
+          "click",
+          closeMenu
+        );
+
+
+        /* ESC FECHA MENU */
+
+        document.addEventListener(
+          "keydown",
+          (event) => {
+            if (event.key === "Escape") {
+              closeMenu();
+            }
+          }
+        );
+
+
+        /* ================================
+           TAMANHO DA LETRA
+        ================================= */
+
+        const decreaseButton =
+          document.getElementById(
+            "font-decrease"
+          );
+
+        const resetButton =
+          document.getElementById(
+            "font-reset"
+          );
+
+        const increaseButton =
+          document.getElementById(
+            "font-increase"
+          );
+
+
+        const defaultSize = 1.3;
+
+        const minimumSize = 1.1;
+
+        const maximumSize = 1.8;
+
+        const step = 0.1;
+
+
+        function setFontSize(size: number) {
+
+          const finalSize =
+            Math.min(
+              maximumSize,
+              Math.max(
+                minimumSize,
+                size
+              )
+            );
+
+
+          document
+            .querySelectorAll(
+              ".reader-text"
+            )
+            .forEach(
+              (element) => {
+
+                (
+                  element as HTMLElement
+                ).style.fontSize =
+                  `${finalSize}rem`;
+
+              }
+            );
+
+
+          localStorage.setItem(
+            "fibiblia-font-size",
+            String(finalSize)
+          );
+        }
+
+
+        const savedSize =
+          Number(
+            localStorage.getItem(
+              "fibiblia-font-size"
+            )
+          );
+
+
+        setFontSize(
+          savedSize || defaultSize
+        );
+
+
+        decreaseButton?.addEventListener(
+          "click",
+          () => {
+
+            const currentSize =
+              Number(
+                localStorage.getItem(
+                  "fibiblia-font-size"
+                )
+              ) || defaultSize;
+
+
+            setFontSize(
+              currentSize - step
+            );
+
+          }
+        );
+
+
+        resetButton?.addEventListener(
+          "click",
+          () => {
+
+            setFontSize(
+              defaultSize
+            );
+
+          }
+        );
+
+
+        increaseButton?.addEventListener(
+          "click",
+          () => {
+
+            const currentSize =
+              Number(
+                localStorage.getItem(
+                  "fibiblia-font-size"
+                )
+              ) || defaultSize;
+
+
+            setFontSize(
+              currentSize + step
+            );
+
+          }
+        );
+
+
+        /* ================================
+           AO ESCOLHER UM CAPÍTULO
+           FECHA O MENU
+        ================================= */
+
+        document
+          .querySelectorAll(
+            ".chapter-link"
+          )
+          .forEach(
+            (link) => {
+
+              link.addEventListener(
+                "click",
+                () => {
+                  closeMenu();
+                }
+              );
+
+            }
+          );
+      </script>
+
+    </main>
+
+  </body>
+</html>
