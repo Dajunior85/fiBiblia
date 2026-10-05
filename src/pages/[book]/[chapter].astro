@@ -15,174 +15,322 @@ interface Chapter {
 }
 
 interface Verse {
+  chapter_id: string;
   verse_number: number;
   text: string;
 }
 
+interface PageProps {
+  book: Book;
+  chapter: string;
+  chapterNumber: number;
+  verses: Verse[];
+  previousUrl: string | null;
+  nextUrl: string | null;
+  booksForMenu: Array<
+    Book & {
+      chapters: Chapter[];
+    }
+  >;
+}
+
+
+/*
+ * ============================================================
+ * GERAÇÃO DAS 1.189 ROTAS
+ * ============================================================
+ */
+
 export async function getStaticPaths() {
+  /*
+   * ----------------------------------------------------------
+   * 1. LIVROS
+   * ----------------------------------------------------------
+   */
+
   const { data: books, error: booksError } = await supabase
     .from("books")
-    .select("id, slug");
+    .select("id, name, slug, book_order")
+    .order("book_order");
 
   if (booksError || !books) {
-    throw new Error("Não foi possível carregar os livros.");
-  }
+  throw new Error(
+    `Não foi possível carregar os livros: ${booksError?.message ?? "dados não retornados"}`
+  );
+}
+
+
+  /*
+   * ----------------------------------------------------------
+   * 2. CAPÍTULOS
+   * ----------------------------------------------------------
+   *
+   * O Supabase pode limitar uma consulta a 1000 registros.
+   * Como temos 1.189 capítulos, usamos range.
+   */
 
   const { data: chapters, error: chaptersError } = await supabase
     .from("chapters")
-    .select("book_id, chapter_number")
-    .order("chapter_number");
+    .select("id, book_id, chapter_number")
+    .order("book_id")
+    .order("chapter_number")
+    .range(0, 1999);
 
   if (chaptersError || !chapters) {
     throw new Error("Não foi possível carregar os capítulos.");
   }
 
+
+  /*
+   * ----------------------------------------------------------
+   * 3. VERSÃO BÍBLIA LIVRE
+   * ----------------------------------------------------------
+   */
+
+  const { data: version, error: versionError } = await supabase
+    .from("bible_versions")
+    .select("id")
+    .eq("abbreviation", "BL")
+    .single();
+
+  if (versionError || !version) {
+    throw new Error("Versão bíblica não encontrada.");
+  }
+
+
+  /*
+   * ----------------------------------------------------------
+   * 4. TODOS OS VERSÍCULOS
+   * ----------------------------------------------------------
+   *
+   * Carregamos em blocos de 1000.
+   */
+
+  const allVerses: Verse[] = [];
+
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("verses")
+      .select("chapter_id, verse_number, text")
+      .eq("version_id", version.id)
+      .order("chapter_id")
+      .order("verse_number")
+      .range(from, from + pageSize - 1);
+
+    if (error) {
+      throw new Error(
+        "Não foi possível carregar os versículos."
+      );
+    }
+
+    const page = data ?? [];
+
+    allVerses.push(...page);
+
+    if (page.length < pageSize) {
+      break;
+    }
+  }
+
+
+  /*
+   * ----------------------------------------------------------
+   * 5. MAPA DE CAPÍTULOS POR LIVRO
+   * ----------------------------------------------------------
+   */
+
+  const chaptersByBookId = new Map<string, Chapter[]>();
+
+  for (const chapter of chapters) {
+    const existing = chaptersByBookId.get(chapter.book_id);
+
+    if (existing) {
+      existing.push(chapter);
+    } else {
+      chaptersByBookId.set(chapter.book_id, [chapter]);
+    }
+  }
+
+
+  /*
+   * ----------------------------------------------------------
+   * 6. MAPA DE VERSÍCULOS POR CAPÍTULO
+   * ----------------------------------------------------------
+   */
+
+  const versesByChapterId = new Map<string, Verse[]>();
+
+  for (const verse of allVerses) {
+    const existing =
+      versesByChapterId.get(verse.chapter_id);
+
+    if (existing) {
+      existing.push(verse);
+    } else {
+      versesByChapterId.set(
+        verse.chapter_id,
+        [verse]
+      );
+    }
+  }
+
+
+  /*
+   * ----------------------------------------------------------
+   * 7. MENU COMPLETO
+   * ----------------------------------------------------------
+   */
+
+  const booksForMenu = books.map((book) => ({
+    ...book,
+    chapters:
+      chaptersByBookId.get(book.id) ?? [],
+  }));
+
+
+  /*
+   * ----------------------------------------------------------
+   * 8. GERA AS PÁGINAS
+   * ----------------------------------------------------------
+   */
+
   const paths = [];
 
   for (const book of books) {
-    const bookChapters = chapters.filter(
-      (chapter) => chapter.book_id === book.id
-    );
+    const bookChapters =
+      chaptersByBookId.get(book.id) ?? [];
 
-    for (const chapter of bookChapters) {
+    for (let index = 0; index < bookChapters.length; index++) {
+      const currentChapter = bookChapters[index];
+
+      /*
+       * ------------------------------------------------------
+       * CAPÍTULO ANTERIOR
+       * ------------------------------------------------------
+       */
+
+      let previousUrl: string | null = null;
+
+      if (index > 0) {
+        const previousChapter =
+          bookChapters[index - 1];
+
+        previousUrl =
+          `/${book.slug}/${previousChapter.chapter_number}`;
+      } else if (book.book_order > 1) {
+        const previousBook = books.find(
+          (item) =>
+            item.book_order === book.book_order - 1
+        );
+
+        if (previousBook) {
+          const previousBookChapters =
+            chaptersByBookId.get(previousBook.id) ?? [];
+
+          const lastChapter =
+            previousBookChapters[
+              previousBookChapters.length - 1
+            ];
+
+          if (lastChapter) {
+            previousUrl =
+              `/${previousBook.slug}/${lastChapter.chapter_number}`;
+          }
+        }
+      }
+
+
+      /*
+       * ------------------------------------------------------
+       * PRÓXIMO CAPÍTULO
+       * ------------------------------------------------------
+       */
+
+      let nextUrl: string | null = null;
+
+      if (index < bookChapters.length - 1) {
+        const nextChapter =
+          bookChapters[index + 1];
+
+        nextUrl =
+          `/${book.slug}/${nextChapter.chapter_number}`;
+      } else {
+        const nextBook = books.find(
+          (item) =>
+            item.book_order === book.book_order + 1
+        );
+
+        if (nextBook) {
+          nextUrl =
+            `/${nextBook.slug}/1`;
+        }
+      }
+
+
+      /*
+       * ------------------------------------------------------
+       * DADOS DA PÁGINA
+       * ------------------------------------------------------
+       */
+
       paths.push({
         params: {
           book: book.slug,
-          chapter: String(chapter.chapter_number),
+          chapter: String(
+            currentChapter.chapter_number
+          ),
         },
+
+        props: {
+          book,
+          chapter: String(
+            currentChapter.chapter_number
+          ),
+          chapterNumber:
+            currentChapter.chapter_number,
+
+          verses:
+            versesByChapterId.get(
+              currentChapter.id
+            ) ?? [],
+
+          previousUrl,
+          nextUrl,
+
+          booksForMenu,
+        } satisfies PageProps,
       });
     }
   }
 
+  console.log(
+    `fiBíblia: ${books.length} livros, ${chapters.length} capítulos e ${allVerses.length} versículos carregados.`
+  );
+
   return paths;
 }
 
-const { book: bookSlug, chapter } = Astro.params;
-const chapterNumber = Number(chapter);
 
-let book: Book | null = null;
-let verses: Verse[] = [];
-let errorMessage = "";
-let previousUrl: string | null = null;
-let nextUrl: string | null = null;
+/*
+ * ============================================================
+ * DADOS RECEBIDOS PELA PÁGINA
+ * ============================================================
+ */
 
-const { data: bookData, error: bookError } = await supabase
-  .from("books")
-  .select("id, name, slug, book_order")
-  .eq("slug", bookSlug)
-  .single();
+const {
+  book,
+  chapter,
+  chapterNumber,
+  verses,
+  previousUrl,
+  nextUrl,
+  booksForMenu,
+} = Astro.props as PageProps;
 
-if (bookError || !bookData) {
-  errorMessage = "Livro não encontrado.";
-} else {
-  book = bookData;
-
-  const { data: chapterData, error: chapterError } = await supabase
-    .from("chapters")
-    .select("id, book_id, chapter_number")
-    .eq("book_id", book.id)
-    .eq("chapter_number", chapterNumber)
-    .single();
-
-  if (chapterError || !chapterData) {
-    errorMessage = "Capítulo não encontrado.";
-  } else {
-    const { data: version, error: versionError } = await supabase
-      .from("bible_versions")
-      .select("id")
-      .eq("abbreviation", "BL")
-      .single();
-
-    if (versionError || !version) {
-      errorMessage = "Versão bíblica não encontrada.";
-    } else {
-      const { data, error: verseError } = await supabase
-        .from("verses")
-        .select("verse_number, text")
-        .eq("chapter_id", chapterData.id)
-        .eq("version_id", version.id)
-        .order("verse_number");
-
-      if (verseError) {
-        errorMessage = "Erro ao carregar os versículos.";
-      } else {
-        verses = data ?? [];
-      }
-    }
-
-    // Capítulo anterior
-    if (chapterNumber > 1) {
-      previousUrl = `/${book.slug}/${chapterNumber - 1}`;
-    } else if (book.book_order > 1) {
-      const { data: previousBook } = await supabase
-        .from("books")
-        .select("id, slug")
-        .eq("book_order", book.book_order - 1)
-        .single();
-
-      if (previousBook) {
-        const { data: lastChapter } = await supabase
-          .from("chapters")
-          .select("chapter_number")
-          .eq("book_id", previousBook.id)
-          .order("chapter_number", { ascending: false })
-          .limit(1)
-          .single();
-
-        if (lastChapter) {
-          previousUrl = `/${previousBook.slug}/${lastChapter.chapter_number}`;
-        }
-      }
-    }
-
-    // Próximo capítulo
-    const { data: currentBookLastChapter } = await supabase
-      .from("chapters")
-      .select("chapter_number")
-      .eq("book_id", book.id)
-      .order("chapter_number", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (
-      currentBookLastChapter &&
-      chapterNumber < currentBookLastChapter.chapter_number
-    ) {
-      nextUrl = `/${book.slug}/${chapterNumber + 1}`;
-    } else {
-      const { data: nextBook } = await supabase
-        .from("books")
-        .select("slug, id")
-        .eq("book_order", book.book_order + 1)
-        .single();
-
-      if (nextBook) {
-        nextUrl = `/${nextBook.slug}/1`;
-      }
-    }
-  }
-}
-
-/* ================================
-   MENU DE NAVEGAÇÃO
-================================ */
-
-const { data: navigationBooks } = await supabase
-  .from("books")
-  .select("id, name, slug, book_order")
-  .order("book_order");
-
-const { data: navigationChapters } = await supabase
-  .from("chapters")
-  .select("book_id, chapter_number")
-  .order("chapter_number");
-
-const booksForMenu = (navigationBooks ?? []).map((menuBook) => ({
-  ...menuBook,
-  chapters: (navigationChapters ?? [])
-    .filter((menuChapter) => menuChapter.book_id === menuBook.id)
-    .sort((a, b) => a.chapter_number - b.chapter_number),
-}));
+const bookSlug = book.slug;
+const errorMessage = "";
 ---
 
 <!doctype html>
