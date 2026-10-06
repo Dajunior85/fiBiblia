@@ -69,12 +69,37 @@ export async function getStaticPaths() {
    * Como temos 1.189 capítulos, usamos range.
    */
 
-  const { data: chapters, error: chaptersError } = await supabase
+  let chaptersError: any = null;
+
+const allChapters: {
+  id: string;
+  book_id: string;
+  chapter_number: number;
+}[] = [];
+
+const chapterBatchSize = 1000;
+
+for (let from = 0; ; from += chapterBatchSize) {
+  const { data: chapterBatch, error } = await supabase
     .from("chapters")
     .select("id, book_id, chapter_number")
     .order("book_id")
     .order("chapter_number")
-    .range(0, 1999);
+    .range(from, from + chapterBatchSize - 1);
+
+  if (error) {
+    chaptersError = error;
+    break;
+  }
+
+  allChapters.push(...(chapterBatch ?? []));
+
+  if (!chapterBatch || chapterBatch.length < chapterBatchSize) {
+    break;
+  }
+}
+
+const chapters = allChapters;
 
   if (chaptersError || !chapters) {
     throw new Error("Não foi possível carregar os capítulos.");
