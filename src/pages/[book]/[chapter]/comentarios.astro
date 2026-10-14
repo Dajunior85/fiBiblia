@@ -1,0 +1,272 @@
+
+---
+import { supabase } from "../../../lib/supabase";
+
+export async function getStaticPaths() {
+  const { data: books, error: booksError } = await supabase
+    .from("books")
+    .select("id, name, slug");
+
+  const { data: chapters, error: chaptersError } = await supabase
+    .from("chapters")
+    .select("id, book_id, chapter_number");
+
+  const { data: contents, error: contentsError } = await supabase
+    .from("editorial_contents")
+    .select("id, chapter_id, title, type, verse_start, verse_end, content")
+    .eq("status", "published")
+    .order("verse_start", { ascending: true });
+
+  if (booksError || chaptersError || contentsError) {
+    throw new Error("Erro ao carregar os comentários filosóficos.");
+  }
+
+  return (books ?? []).flatMap((book) =>
+    (chapters ?? [])
+      .filter((chapter) => chapter.book_id === book.id)
+      .map((chapter) => ({
+        params: {
+          book: book.slug,
+          chapter: String(chapter.chapter_number),
+        },
+        props: {
+          bookName: book.name,
+          bookSlug: book.slug,
+          chapterNumber: chapter.chapter_number,
+          comments: (contents ?? []).filter(
+            (item) => item.chapter_id === chapter.id
+          ),
+        },
+      }))
+  );
+}
+
+const { bookName, bookSlug, chapterNumber, comments } = Astro.props;
+---
+
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content={`Comentários filosóficos sobre ${bookName} ${chapterNumber}.`}
+    />
+    <title>Comentários — {bookName} {chapterNumber} | fiBíblia</title>
+  </head>
+
+  <body>
+    <main class="container">
+      <a class="back-to-bible" href={`/${bookSlug}/${chapterNumber}/`}>
+        ← Voltar ao texto bíblico
+      </a>
+
+      <header>
+        <p class="eyebrow">fiBíblia · Bíblia, Filosofias e Reflexões</p>
+        <h1>Reflexões filosóficas</h1>
+        <p class="subtitle">{bookName} {chapterNumber}</p>
+
+        <div class="font-controls" aria-label="Tamanho do texto filosófico">
+          <button id="font-decrease" type="button" aria-label="Diminuir letra">A−</button>
+          <button id="font-increase" type="button" aria-label="Aumentar letra">A+</button>
+        </div>
+      </header>
+
+      {comments.length > 0 ? (
+        comments.map((item) => (
+          <article class="comment">
+            <h2>{item.title}</h2>
+
+            {item.verse_start != null && item.verse_end != null && (
+              <p class="reference">
+                Referência: {bookName} {chapterNumber}:{item.verse_start}–{item.verse_end}
+              </p>
+            )}
+
+            <div class="comment-text">{item.content}</div>
+          </article>
+        ))
+      ) : (
+        <p class="empty">
+          Os comentários filosóficos deste capítulo estão sendo preparados.
+        </p>
+      )}
+
+      <a class="back-to-bible" href={`/${bookSlug}/${chapterNumber}/`}>
+        ← Voltar ao texto bíblico
+      </a>
+    </main>
+
+    <script>
+      const textElements = document.querySelectorAll<HTMLElement>(".comment-text");
+      const decreaseButton = document.getElementById("font-decrease");
+      const increaseButton = document.getElementById("font-increase");
+      const defaultFontSize = 16;
+      const minFontSize = 12;
+      const maxFontSize = 28;
+      const step = 2;
+      let fontSize = defaultFontSize;
+
+      const applyFontSize = () => {
+        textElements.forEach((element) => {
+          element.style.fontSize = `${fontSize}px`;
+        });
+      };
+
+      decreaseButton?.addEventListener("click", () => {
+        fontSize = Math.max(minFontSize, fontSize - step);
+        applyFontSize();
+      });
+
+      increaseButton?.addEventListener("click", () => {
+        fontSize = Math.min(maxFontSize, fontSize + step);
+        applyFontSize();
+      });
+    </script>
+  </body>
+</html>
+
+<style>
+  :global(*) {
+    box-sizing: border-box;
+  }
+
+  :global(body) {
+    margin: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.75;
+    color: #292929;
+    background: #faf9f6;
+  }
+
+  .container {
+    width: min(100% - 32px, 780px);
+    margin: 0 auto;
+    padding: 28px 0 56px;
+  }
+
+  
+
+  header {
+    margin-bottom: 32px;
+  }
+
+  .eyebrow {
+    color: #777;
+    font-size: 0.85rem;
+  }
+
+  h1 {
+    font-size: clamp(1.8rem, 5vw, 2.5rem);
+    line-height: 1.2;
+    margin: 12px 0;
+  }
+
+  .subtitle {
+    color: #666;
+    font-size: 1.1rem;
+  }
+
+  
+  .comment {
+    margin-bottom: 24px;
+    padding: 24px;
+    border: 1px solid #e6e1d8;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .comment h2 {
+    margin-top: 0;
+    line-height: 1.35;
+    font-size: 1.3rem;
+  }
+
+  .reference {
+    color: #777;
+    font-size: 0.9rem;
+  }
+
+  .comment-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 16px;
+  }
+
+  .empty {
+    padding: 20px;
+    background: #fff;
+    border-radius: 10px;
+  }
+
+  @media (max-width: 600px) {
+    .container {
+      width: min(100% - 24px, 780px);
+      padding-top: 20px;
+    }
+
+    .comment {
+      padding: 18px;
+    }
+  }
+
+  
+.back-to-bible {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 11px 18px;
+  margin: 12px 0 24px;
+  border: 1px solid #765536;
+  border-radius: 10px;
+  background: #765536;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: background 0.2s ease;
+}
+
+.back-to-bible:hover {
+  background: #5f422a;
+  color: #fff;
+}
+
+.font-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 24px;
+}
+
+.font-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid #ded5c8;
+  border-radius: 10px;
+  background: #f0ede7;
+  color: #403b34;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.font-controls button:hover {
+  background: #e5ded3;
+  border-color: #bca991;
+}
+
+.font-controls button:focus-visible,
+.back-to-bible:focus-visible {
+  outline: 2px solid #765536;
+  outline-offset: 3px;
+}
+
+</style>
