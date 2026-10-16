@@ -1,0 +1,64 @@
+
+---
+import { supabaseAdmin } from "../lib/supabase-admin.js";
+
+const isDev = import.meta.env.DEV;
+
+let conteudos: {
+  title: string;
+  type: string;
+  status: string;
+  content: string;
+  verse_start: number | null;
+  verse_end: number | null;
+  author: string | null;
+}[] = [];
+let erro = "";
+
+if (isDev) {
+  const { data, error } = await supabaseAdmin
+    .from("editorial_contents")
+    .select("title, type, status, content, verse_start, verse_end, author")
+    .eq("chapter_id", "a5b2d784-9bb0-40b4-b403-61a4de5cdd8d")
+    .order("type");
+
+  if (error) {
+    erro = error.message;
+  } else {
+    conteudos = data ?? [];
+  }
+}
+---
+
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Pré-visualização editorial | fiBíblia</title>
+  </head>
+  <body>
+    <main>
+      <h1>Pré-visualização editorial</h1>
+      <p>Eclesiastes 3:1–11 — ambiente de desenvolvimento</p>
+
+      {!isDev ? (
+        <p>Esta página está disponível somente em desenvolvimento.</p>
+      ) : erro ? (
+        <p>Erro ao consultar o Supabase: {erro}</p>
+      ) : conteudos.length === 0 ? (
+        <p>Nenhum conteúdo retornado pela consulta.</p>
+      ) : (
+        conteudos.map((item) => (
+          <article>
+            <h2>{item.title}</h2>
+            <p>
+              Tipo: {item.type} | Status: {item.status} | Autor: {item.author}
+            </p>
+            <p>Versículos: {item.verse_start}–{item.verse_end}</p>
+            <div style="white-space: pre-wrap">{item.content}</div>
+          </article>
+        ))
+      )}
+    </main>
+  </body>
+</html>
