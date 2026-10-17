@@ -135,15 +135,33 @@ function extrairSecoes(conteudo) {
 
 // Localiza um livro bíblico pelo nome.
 async function buscarLivro(nomeLivro) {
-  const { data, error } = await supabase
-    .from("books")
-    .select("id, name")
-    .ilike("name", nomeLivro)
-    .maybeSingle();
+  const aliases = {
+    genesis: ["Gênesis", "Genesis"],
+    exodus: ["Êxodo", "Exodus"],
+    leviticus: ["Levítico", "Leviticus"],
+    numbers: ["Números", "Numbers"],
+    deuteronomy: ["Deuteronômio", "Deuteronomy"],
+  };
 
-  if (error) throw error;
+  const chave = nomeLivro
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 
-  return data;
+  const candidatos = aliases[chave] ?? [nomeLivro];
+
+  for (const candidato of candidatos) {
+    const { data, error } = await supabase
+      .from("books")
+      .select("id, name")
+      .ilike("name", candidato)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  return null;
 }
 
 // Localiza um capítulo de um livro.
@@ -301,23 +319,27 @@ async function main() {
         const titulo =
           `${path.parse(nomeArquivo).name} — ${secao.heading}`;
 
-        // Por segurança, a importação sempre começa como rascunho.
-        // A publicação deve ser uma ação explícita posterior.
-        const registro = {
+        // O status definido no Obsidian controla a publicação.
+const statusEditorial =
+  String(data.status ?? "").trim().toLowerCase() === "publicado"
+    ? "published"
+    : "draft";
+
+const registro = {
           chapter_id: capitulo.id,
           verse_start: versiculoInicial,
           verse_end: versiculoFinal,
           type: secao.type,
           title: titulo,
           content: secao.content,
-          status: "draft",
+          status: statusEditorial,
           author: filosofo,
         };
 
         const resultado = await salvarSecao(registro);
 
         console.log(
-          `${resultado.acao}: ${titulo} (rascunho)`
+          `${resultado.acao}: ${titulo} (${statusEditorial})`
         );
       }
     }
