@@ -2,7 +2,7 @@
 ---
 tipo: guia-filosofico
 filosofo: "[[Albert Camus]]"
-status: rascunho
+status: publicado
 referencias_biblicas:
   - livro: "[[Genesis]]"
     capitulo: 4

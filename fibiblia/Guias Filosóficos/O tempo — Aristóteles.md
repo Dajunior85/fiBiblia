@@ -2,7 +2,7 @@
 ---
 tipo: guia-filosofico
 filosofo: "[[Aristóteles]]"
-status: rascunho
+status: publicado
 referencias_biblicas:
   - livro: "[[Eclesiastes]]"
     capitulo: 3
