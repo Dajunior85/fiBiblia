@@ -1,31 +1,20 @@
 ---
 
 import { supabase } from "../../lib/supabase";
-
-
+import { formatarReferencia } from "../../lib/referencias-biblicas";
 
 interface Book {
-
   id: string;
-
   name: string;
-
   slug: string;
-
   book_order: number;
-
 }
-
-
 
 interface Chapter {
 
   id: string;
-
   book_id: string;
-
   chapter_number: number;
-
 }
 
 
@@ -45,27 +34,17 @@ interface Verse {
 interface PageProps {
 
   book: Book;
-
   chapter: string;
-
   chapterNumber: number;
-
+  hasComments: boolean;
   verses: Verse[];
-
   previousUrl: string | null;
-
   nextUrl: string | null;
-
   booksForMenu: Array<
-
     Book & {
-
       chapters: Chapter[];
-
     }
-
   >;
-
 }
 
 
@@ -209,7 +188,19 @@ const chapters = allChapters;
     throw new Error("Não foi possível carregar os capítulos.");
 
   }
+const { data: publishedContents, error: publishedError } =
+  await supabase
+    .from("editorial_contents")
+    .select("chapter_id")
+    .eq("status", "published");
 
+if (publishedError) {
+  throw new Error("Não foi possível carregar o índice de comentários.");
+}
+
+const commentedChapterIds = new Set(
+  (publishedContents ?? []).map((item) => item.chapter_id)
+);
 
 
 
@@ -616,42 +607,24 @@ const chapters = allChapters;
 
         },
 
-
-
         props: {
 
           book,
-
           chapter: String(
-
             currentChapter.chapter_number
-
           ),
-
           chapterNumber:
-
             currentChapter.chapter_number,
-
-
-
+           hasComments: commentedChapterIds.has(
+    currentChapter.id
+  ),
           verses:
-
             versesByChapterId.get(
-
               currentChapter.id
-
             ) ?? [],
-
-
-
           previousUrl,
-
           nextUrl,
-
-
-
           booksForMenu,
-
         } satisfies PageProps,
 
       });
@@ -705,6 +678,7 @@ const {
   nextUrl,
 
   booksForMenu,
+  hasComments,
 
 } = Astro.props as PageProps;
 
@@ -2141,9 +2115,15 @@ const errorMessage =
         {book?.name} {chapter}
       </div>
 
-      <a class="header-comments" href={`/${bookSlug}/${chapterNumber}/comentarios/`} aria-label="Abrir comentários deste capítulo">
+      
+        <a
+          class="header-comments"
+          href={`/${bookSlug}/${chapterNumber}/comentarios/`}
+          aria-label={`Abrir reflexões filosóficas de ${book.name} ${chapterNumber}`}
+        >
         Comentários
-      </a>
+        </a>
+
 
       <div></div>
 

@@ -22,17 +22,11 @@ O tempo para os gregos era uma régua de medição. Aristóteles no seu livro IV
 
 ## Posição filosófica
 
-[Aristóteles compreende o tempo como algo relacionado ao movimento e numerável segundo a distinção entre antes e depois. O tempo não se identifica simplesmente com o movimento: é o movimento enquanto pode ser contado ou determinado em sua sucessão. Essa análise aparece em *Física*, Livro IV, especialmente nos capítulos 10-14.
 
-Eclesiastes trabalha em outro registro: o dos tempos e ocasiões da existência sob a perspectiva de Deus. A aproximação entre os textos é comparativa, não uma afirmação de que o autor bíblico compartilhe a teoria aristotélica. A noção de que Deus ordena ou torna apropriados os tempos é uma interpretação teológica da passagem, e não a definição aristotélica do tempo.]
 
 ## Reflexão
 
-[No cotidiano, medimos o tempo por relógios, calendários, prazos e indicadores. Essas medidas são úteis para organizar o trabalho, os estudos, os compromissos e o descanso. Porém, cumprir um prazo não garante que uma decisão seja sábia, assim como esperar mais tempo não assegura que uma oportunidade será melhor.
 
-Eclesiastes convida a reconhecer que há ocasiões distintas para agir, esperar, construir, abandonar, falar e silenciar. A referência à eternidade no coração humano também pode ser lida como expressão da tensão entre o desejo de compreender o todo e os limites da perspectiva individual. Nem sempre conseguimos perceber, no momento em que algo acontece, o lugar que aquilo ocupará em nossa história.
-
-O diálogo com Aristóteles ajuda a distinguir duas perguntas: “quanto tempo passou?” e “que tipo de ocasião é esta?”. A primeira pode ser respondida por uma medida; a segunda exige discernimento, atenção às circunstâncias e reflexão sobre o sentido da ação. A leitura de Eclesiastes não elimina a importância de planejar, mas lembra que planejamento e controle não equivalem à compreensão completa da vida.]
 
 ## Referências e fontes
 

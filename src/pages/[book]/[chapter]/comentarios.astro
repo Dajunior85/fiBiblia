@@ -1,11 +1,12 @@
 
 ---
 import { supabase } from "../../../lib/supabase";
+import { formatarReferencia } from "../../../lib/referencias-biblicas";
 
 export async function getStaticPaths() {
   const { data: books, error: booksError } = await supabase
     .from("books")
-    .select("id, name, slug");
+    .select("id, name, slug, book_order");
 
   const { data: chapters, error: chaptersError } = await supabase
     .from("chapters")
@@ -13,13 +14,44 @@ export async function getStaticPaths() {
 
   const { data: contents, error: contentsError } = await supabase
     .from("editorial_contents")
-    .select("id, chapter_id, title, type, verse_start, verse_end, content")
+    .select("id, chapter_id, title, type, verse_start, verse_end, content, author")
     .eq("status", "published")
     .order("verse_start", { ascending: true });
 
   if (booksError || chaptersError || contentsError) {
     throw new Error("Erro ao carregar os comentários filosóficos.");
   }
+// Lista todos os capítulos que possuem reflexões publicadas
+  const relatedCommentsMap = new Map();
+
+  for (const item of contents ?? []) {
+    const chapter = (chapters ?? []).find(
+      (c) => c.id === item.chapter_id
+    );
+    if (!chapter) continue;
+
+    const book = (books ?? []).find(
+      (b) => b.id === chapter.book_id
+    );
+    if (!book) continue;
+
+    const key = `${book.slug}/${chapter.chapter_number}`;
+
+    relatedCommentsMap.set(key, {
+  slug: book.slug,
+  chapterNumber: chapter.chapter_number,
+  label: formatarReferencia(book.slug, chapter.chapter_number),
+  bookName: book.name,
+  bookOrder: book.book_order,
+  author: item.author || "Autor não informado",
+});
+  }
+
+  const relatedComments = [...relatedCommentsMap.values()].sort(
+    (a, b) =>
+      a.bookOrder - b.bookOrder ||
+      a.chapterNumber - b.chapterNumber
+  );
 
   return (books ?? []).flatMap((book) =>
     (chapters ?? [])
@@ -36,12 +68,13 @@ export async function getStaticPaths() {
           comments: (contents ?? []).filter(
             (item) => item.chapter_id === chapter.id
           ),
+          relatedComments,
         },
       }))
   );
 }
 
-const { bookName, bookSlug, chapterNumber, comments } = Astro.props;
+const { bookName, bookSlug, chapterNumber, comments, relatedComments, } = Astro.props;
 ---
 
 <html lang="pt-BR">
@@ -91,7 +124,37 @@ const { bookName, bookSlug, chapterNumber, comments } = Astro.props;
           Os comentários filosóficos deste capítulo estão sendo preparados.
         </p>
       )}
+      <section class="related-comments">
+        <h2>Outras reflexões filosóficas</h2>
 
+  {Object.entries(
+    relatedComments.reduce((groups, item) => {
+      const author = item.author || "Autor não informado";
+
+      if (!groups[author]) {
+        groups[author] = [];
+      }
+
+      groups[author].push(item);
+      return groups;
+    }, {})
+  ).map(([author, items]) => (
+    <div class="philosopher-group">
+      <h3>{author}</h3>
+
+      <div class="reference-buttons">
+        {items.map((item) => (
+          <a
+            href={`/${item.slug}/${item.chapterNumber}/comentarios/`}
+            aria-label={`Reflexões filosóficas: ${item.bookName} ${item.chapterNumber}, por ${author}`}
+          >
+            {item.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  ))}
+</section>
       <a class="back-to-bible" href={`/${bookSlug}/${chapterNumber}/`}>
         ← Voltar ao texto bíblico
       </a>
@@ -268,5 +331,43 @@ const { bookName, bookSlug, chapterNumber, comments } = Astro.props;
   outline: 2px solid #765536;
   outline-offset: 3px;
 }
+.related-comments {
+  margin: 36px 0 24px;
+}
 
+.related-comments h2 {
+  font-size: 1.25rem;
+  margin-bottom: 16px;
+}
+
+.reference-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.reference-buttons a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 13px;
+  border: 1px solid #ded5c8;
+  border-radius: 10px;
+  background: #f0ede7;
+  color: #403b34;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.reference-buttons a:hover {
+  background: #e5ded3;
+}
+.philosopher-group {
+  margin-bottom: 20px;
+}
+
+.philosopher-group h3 {
+  font-size: 1.05rem;
+  margin-bottom: 10px;
+}
 </style>
