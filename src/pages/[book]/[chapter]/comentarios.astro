@@ -106,7 +106,7 @@ const { bookName, bookSlug, chapterNumber, comments, relatedComments, } = Astro.
         </div>
       </header>
 
-      {comments.length > 0 ? (
+            {comments.length > 0 ? (
         comments.map((item) => (
           <article class="comment">
             <h2>{item.title}</h2>
@@ -125,6 +125,13 @@ const { bookName, bookSlug, chapterNumber, comments, relatedComments, } = Astro.
           Os comentários filosóficos deste capítulo estão sendo preparados.
         </p>
       )}
+
+      <div class="guide-cta">
+        <a href="https://lp.fibiblia.com/" class="guide-cta-button">
+          Adquira o Guia Filosófico →
+        </a>
+      </div>
+
       <section class="related-comments">
         <h2>Outras reflexões filosóficas</h2>
 
@@ -370,5 +377,38 @@ const { bookName, bookSlug, chapterNumber, comments, relatedComments, } = Astro.
 .philosopher-group h3 {
   font-size: 1.05rem;
   margin-bottom: 10px;
+}
+.guide-cta {
+  display: flex;
+  justify-content: center;
+  margin: 32px 0 40px;
+}
+
+.guide-cta-button {
+  display: inline-block;
+  padding: 15px 28px;
+  border-radius: 999px;
+  background: #b78332;
+  color: #101d38;
+  font-weight: 700;
+  font-size: 16px;
+  text-align: center;
+  text-decoration: none;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.guide-cta-button:hover {
+  background: #d09b49;
+  transform: translateY(-2px);
+}
+
+@media (max-width: 600px) {
+  .guide-cta-button {
+    width: 100%;
+    max-width: 320px;
+    padding: 14px 20px;
+    font-size: 15px;
+  }
 }
 </style>
